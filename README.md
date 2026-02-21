@@ -5,20 +5,15 @@ A CLI for analyzing Claude Code session JSONL files. Parses raw session logs int
 ## Quickstart
 
 ```bash
-# Install
+# Run directly from the repo (no install needed)
+cargo run -- ~/.claude/projects/*/sessions/*.jsonl blocks
+cargo run -- session.jsonl tokens summary
+cargo run -- session.jsonl tools
+cargo run -- session.jsonl turns
+
+# Or install to your PATH
 cargo install --path .
-
-# Point it at any Claude Code session file
-clauson ~/.claude/projects/*/sessions/*.jsonl blocks
-
-# See token usage
-clauson session.jsonl tokens summary
-
-# List tools used
-clauson session.jsonl tools
-
-# View conversation turns
-clauson session.jsonl turns
+clauson session.jsonl blocks
 ```
 
 Session files live at `~/.claude/projects/<project-hash>/sessions/<session-id>.jsonl`.
