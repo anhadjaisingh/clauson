@@ -138,22 +138,22 @@ fn run_list(
     for &id in &session.chronological {
         let block = session.block(id);
 
-        if let Some(bt) = type_filter {
-            if block.block_type() != bt {
-                continue;
-            }
+        if let Some(bt) = type_filter
+            && block.block_type() != bt
+        {
+            continue;
         }
 
-        if let Some(ref tb) = turn_blocks {
-            if !tb.contains(&id) {
-                continue;
-            }
+        if let Some(ref tb) = turn_blocks
+            && !tb.contains(&id)
+        {
+            continue;
         }
 
-        if let Some(ref tb) = tool_blocks {
-            if !tb.contains(&id) {
-                continue;
-            }
+        if let Some(ref tb) = tool_blocks
+            && !tb.contains(&id)
+        {
+            continue;
         }
 
         summaries.push(block_summary(id, block));
@@ -163,8 +163,8 @@ fn run_list(
         output::print_json(&summaries)?;
     } else {
         println!(
-            "{:<6} {:<10} {:<10} {:<38} {}",
-            "Index", "Type", "Time", "UUID", "Summary"
+            "{:<6} {:<10} {:<10} {:<38} Summary",
+            "Index", "Type", "Time", "UUID"
         );
         println!("{}", "-".repeat(100));
         for s in &summaries {

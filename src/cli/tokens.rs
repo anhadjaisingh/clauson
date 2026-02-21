@@ -96,8 +96,8 @@ fn run_by_turn(session: &Session, json: bool) -> Result<()> {
         output::print_json(&json_turns)?;
     } else {
         println!(
-            "{:>5} {:>10} {:>14} {:>12} {:>10} {:>10}  {}",
-            "Turn", "Input", "Cache Create", "Cache Read", "Output", "Total", "User Prompt"
+            "{:>5} {:>10} {:>14} {:>12} {:>10} {:>10}  User Prompt",
+            "Turn", "Input", "Cache Create", "Cache Read", "Output", "Total"
         );
         println!("{}", "-".repeat(100));
 

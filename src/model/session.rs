@@ -12,6 +12,7 @@ pub struct Session {
     pub roots: Vec<NodeId>,
     by_type: HashMap<BlockType, Vec<NodeId>>,
     by_tool_name: HashMap<String, Vec<NodeId>>,
+    #[allow(dead_code)]
     by_request_id: HashMap<String, Vec<NodeId>>,
     pub chronological: Vec<NodeId>,
     pub provenance: HashMap<NodeId, Vec<RawLineRef>>,
@@ -145,14 +146,15 @@ impl Session {
         for &id in &self.chronological {
             let block = self.block(id);
 
-            if let Block::User(user) = block {
-                if !user.is_meta && user.content.is_some() {
-                    if let Some(builder) = current_turn.take() {
-                        turns.push(builder.finish(turns.len()));
-                    }
-                    current_turn = Some(TurnBuilder::new(id));
-                    continue;
+            if let Block::User(user) = block
+                && !user.is_meta
+                && user.content.is_some()
+            {
+                if let Some(builder) = current_turn.take() {
+                    turns.push(builder.finish(turns.len()));
                 }
+                current_turn = Some(TurnBuilder::new(id));
+                continue;
             }
 
             if let Some(ref mut builder) = current_turn {

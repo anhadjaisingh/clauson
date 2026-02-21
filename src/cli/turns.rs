@@ -54,8 +54,8 @@ fn run_list(session: &Session, json: bool) -> Result<()> {
         output::print_json(&json_turns)?;
     } else {
         println!(
-            "{:>5} {:>20} {:>7} {:>6} {:>10} {:>10}  {}",
-            "Turn", "Timestamp", "Blocks", "Tools", "Tokens", "Duration", "User Prompt"
+            "{:>5} {:>20} {:>7} {:>6} {:>10} {:>10}  User Prompt",
+            "Turn", "Timestamp", "Blocks", "Tools", "Tokens", "Duration"
         );
         println!("{}", "-".repeat(100));
 
@@ -134,8 +134,8 @@ fn run_show(session: &Session, number: usize, json: bool) -> Result<()> {
         println!();
         println!("Blocks ({}):", turn.all_blocks.len());
         println!(
-            "  {:<6} {:<10} {:<10} {}",
-            "Index", "Type", "Time", "Summary"
+            "  {:<6} {:<10} {:<10} Summary",
+            "Index", "Type", "Time"
         );
         println!("  {}", "-".repeat(70));
 

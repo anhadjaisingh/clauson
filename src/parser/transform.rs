@@ -28,6 +28,12 @@ pub struct Transformer {
     session_id: Option<String>,
 }
 
+impl Default for Transformer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Transformer {
     pub fn new() -> Self {
         Transformer {
@@ -164,17 +170,17 @@ impl Transformer {
         for content_block in &asst.message.content {
             match content_block {
                 AssistantContentBlock::Text { text } => {
-                    if let Some(t) = text {
-                        if !t.is_empty() {
-                            text_parts.push(t.clone());
-                        }
+                    if let Some(t) = text
+                        && !t.is_empty()
+                    {
+                        text_parts.push(t.clone());
                     }
                 }
                 AssistantContentBlock::Thinking { thinking } => {
-                    if let Some(t) = thinking {
-                        if !t.is_empty() {
-                            thinking_parts.push(t.clone());
-                        }
+                    if let Some(t) = thinking
+                        && !t.is_empty()
+                    {
+                        thinking_parts.push(t.clone());
                     }
                 }
                 AssistantContentBlock::ToolUse(tu) => {
@@ -213,50 +219,50 @@ impl Transformer {
             .unwrap_or_default();
 
         // Check if we should merge with an existing assistant block (same request_id)
-        if !request_id.is_empty() {
-            if let Some(&existing_idx) = self.assistant_by_request_id.get(&request_id) {
-                // Merge into existing block
-                if let Block::Assistant(ref mut existing) = self.blocks[existing_idx] {
-                    // Merge text
-                    if !text_parts.is_empty() {
-                        let new_text = text_parts.join("");
-                        match &mut existing.content {
-                            Some(content) => content.push_str(&new_text),
-                            None => existing.content = Some(new_text),
-                        }
-                    }
-
-                    // Merge thinking
-                    if !thinking_parts.is_empty() {
-                        let new_thinking = thinking_parts.join("\n");
-                        match &mut existing.thinking {
-                            Some(thinking) => {
-                                thinking.push('\n');
-                                thinking.push_str(&new_thinking);
-                            }
-                            None => existing.thinking = Some(new_thinking),
-                        }
-                    }
-
-                    // Merge tool_calls
-                    existing.tool_calls.extend(tool_calls);
-
-                    // Merge tokens
-                    existing.tokens.merge(&tokens);
-
-                    // Update stop_reason if this entry has one
-                    if asst.message.stop_reason.is_some() {
-                        existing.stop_reason = asst.message.stop_reason;
+        if !request_id.is_empty()
+            && let Some(&existing_idx) = self.assistant_by_request_id.get(&request_id)
+        {
+            // Merge into existing block
+            if let Block::Assistant(ref mut existing) = self.blocks[existing_idx] {
+                // Merge text
+                if !text_parts.is_empty() {
+                    let new_text = text_parts.join("");
+                    match &mut existing.content {
+                        Some(content) => content.push_str(&new_text),
+                        None => existing.content = Some(new_text),
                     }
                 }
 
-                // Add provenance
-                self.provenance
-                    .entry(existing_idx)
-                    .or_default()
-                    .push(line_ref);
-                return;
+                // Merge thinking
+                if !thinking_parts.is_empty() {
+                    let new_thinking = thinking_parts.join("\n");
+                    match &mut existing.thinking {
+                        Some(thinking) => {
+                            thinking.push('\n');
+                            thinking.push_str(&new_thinking);
+                        }
+                        None => existing.thinking = Some(new_thinking),
+                    }
+                }
+
+                // Merge tool_calls
+                existing.tool_calls.extend(tool_calls);
+
+                // Merge tokens
+                existing.tokens.merge(&tokens);
+
+                // Update stop_reason if this entry has one
+                if asst.message.stop_reason.is_some() {
+                    existing.stop_reason = asst.message.stop_reason;
+                }
             }
+
+            // Add provenance
+            self.provenance
+                .entry(existing_idx)
+                .or_default()
+                .push(line_ref);
+            return;
         }
 
         // Create new assistant block
