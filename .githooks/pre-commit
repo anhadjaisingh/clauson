@@ -1,0 +1,10 @@
+#!/bin/sh
+# Pre-commit hook: run clippy and build before committing
+
+set -e
+
+echo "Running cargo clippy..."
+cargo clippy -- -D warnings
+echo "Running cargo build..."
+cargo build
+echo "Pre-commit checks passed."
