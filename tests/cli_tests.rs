@@ -504,3 +504,205 @@ fn large_session_stats() {
         .assert()
         .success();
 }
+
+// === tool-events ===
+//
+// Test fixture: testdata/test-session.jsonl + testdata/test-session.tool-events.jsonl
+// Fixture contains: 10 calls (5 Bash, 3 Read, 2 Write), 5 prompted, 1 denied
+//
+// See docs/plans/2026-02-25-tool-events-test-plan.md for what each test protects.
+
+const TOOL_EVENTS_SESSION: &str = "testdata/test-session.jsonl";
+
+#[test]
+fn tool_events_missing_sidecar() {
+    Command::cargo_bin("clauson")
+        .unwrap()
+        .args([MEDIUM_FILE, "tool-events"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No tool events file found"));
+}
+
+// --- summary ---
+
+#[test]
+fn tool_events_summary_runs() {
+    Command::cargo_bin("clauson")
+        .unwrap()
+        .args([TOOL_EVENTS_SESSION, "tool-events"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Tool"))
+        .stdout(predicate::str::contains("Calls"))
+        .stdout(predicate::str::contains("Prompted"))
+        .stdout(predicate::str::contains("Denied"));
+}
+
+#[test]
+fn tool_events_summary_json_valid() {
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([TOOL_EVENTS_SESSION, "tool-events", "summary", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(parsed.is_array());
+}
+
+#[test]
+fn tool_events_summary_counts_correct() {
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([TOOL_EVENTS_SESSION, "tool-events", "summary", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    // Last entry is Total
+    let total = parsed.last().unwrap();
+    assert_eq!(total["calls"], 10);
+    assert_eq!(total["prompted"], 5);
+    assert_eq!(total["denied"], 1);
+}
+
+#[test]
+fn tool_events_default_is_summary() {
+    let with = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([TOOL_EVENTS_SESSION, "tool-events", "summary", "--json"])
+        .output()
+        .unwrap();
+    let without = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([TOOL_EVENTS_SESSION, "tool-events", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(with.stdout, without.stdout);
+}
+
+// --- list ---
+
+#[test]
+fn tool_events_list_runs() {
+    Command::cargo_bin("clauson")
+        .unwrap()
+        .args([TOOL_EVENTS_SESSION, "tool-events", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("PreToolUse"))
+        .stdout(predicate::str::contains("Bash"));
+}
+
+#[test]
+fn tool_events_list_filter_tool() {
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([
+            TOOL_EVENTS_SESSION,
+            "tool-events",
+            "list",
+            "--tool",
+            "Read",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    for entry in &parsed {
+        assert_eq!(entry["tool_name"], "Read");
+    }
+}
+
+#[test]
+fn tool_events_list_filter_event() {
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([
+            TOOL_EVENTS_SESSION,
+            "tool-events",
+            "list",
+            "--event",
+            "PermissionRequest",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    for entry in &parsed {
+        assert_eq!(entry["event"], "PermissionRequest");
+    }
+    // 3 Bash + 2 Write = 5 PermissionRequest events
+    assert_eq!(parsed.len(), 5);
+}
+
+// --- timeline ---
+
+#[test]
+fn tool_events_timeline_runs() {
+    Command::cargo_bin("clauson")
+        .unwrap()
+        .args([TOOL_EVENTS_SESSION, "tool-events", "timeline"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("auto-approved"))
+        .stdout(predicate::str::contains("prompted->approved"));
+}
+
+#[test]
+fn tool_events_timeline_filter_tool() {
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([
+            TOOL_EVENTS_SESSION,
+            "tool-events",
+            "timeline",
+            "--tool",
+            "Bash",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed.len(), 5); // 5 Bash calls
+    for entry in &parsed {
+        assert_eq!(entry["tool_name"], "Bash");
+    }
+}
+
+#[test]
+fn tool_events_timeline_shows_denied() {
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([TOOL_EVENTS_SESSION, "tool-events", "timeline", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let denied: Vec<_> = parsed
+        .iter()
+        .filter(|e| e["status"] == "prompted->denied")
+        .collect();
+    assert_eq!(denied.len(), 1);
+}
+
+#[test]
+fn tool_events_timeline_json_has_wait() {
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([TOOL_EVENTS_SESSION, "tool-events", "timeline", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    // Find a prompted->approved entry - it should have wait_secs > 0
+    let prompted = parsed
+        .iter()
+        .find(|e| e["status"] == "prompted->approved")
+        .unwrap();
+    assert!(prompted["wait_secs"].as_f64().unwrap() > 0.0);
+}
