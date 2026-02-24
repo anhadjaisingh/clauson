@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 pub mod blocks;
 pub mod output;
-pub mod tokens;
+pub mod stats;
 pub mod tools;
 pub mod turns;
 
@@ -37,14 +37,14 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<tools::ToolsAction>,
     },
-    /// View token usage statistics
-    Tokens {
-        #[command(subcommand)]
-        action: Option<tokens::TokensAction>,
-    },
     /// View conversation turns
     Turns {
         #[command(subcommand)]
         action: Option<turns::TurnsAction>,
+    },
+    /// Token, time, and tool-call analytics
+    Stats {
+        #[command(subcommand)]
+        action: Option<stats::StatsAction>,
     },
 }

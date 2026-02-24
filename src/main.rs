@@ -14,11 +14,11 @@ fn main() -> anyhow::Result<()> {
         cli::Command::Tools { action } => {
             cli::tools::run(&session, action.as_ref(), cli.json)?;
         }
-        cli::Command::Tokens { action } => {
-            cli::tokens::run(&session, action.as_ref(), cli.json)?;
-        }
-        cli::Command::Turns { action } => {
+cli::Command::Turns { action } => {
             cli::turns::run(&session, action.as_ref(), cli.json)?;
+        }
+        cli::Command::Stats { action } => {
+            cli::stats::run(&session, action.as_ref(), cli.json)?;
         }
     }
     Ok(())
