@@ -63,6 +63,16 @@ struct BlockSummary {
     uuid: String,
     timestamp: String,
     summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_creation_input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_read_input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_tokens: Option<u64>,
 }
 
 fn block_summary(id: usize, block: &Block) -> BlockSummary {
@@ -95,12 +105,30 @@ fn block_summary(id: usize, block: &Block) -> BlockSummary {
         Block::System(s) => format!("{:?}", s.subtype),
     };
 
+    let (input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, total_tokens) =
+        if let Some(t) = block.tokens() {
+            (
+                Some(t.input_tokens),
+                Some(t.output_tokens),
+                Some(t.cache_creation_input_tokens),
+                Some(t.cache_read_input_tokens),
+                Some(t.total()),
+            )
+        } else {
+            (None, None, None, None, None)
+        };
+
     BlockSummary {
         index: id,
         block_type: block.block_type().to_string(),
         uuid: block.uuid().to_string(),
         timestamp: block.timestamp().format("%H:%M:%S").to_string(),
         summary,
+        input_tokens,
+        output_tokens,
+        cache_creation_input_tokens,
+        cache_read_input_tokens,
+        total_tokens,
     }
 }
 
@@ -162,18 +190,23 @@ fn run_list(
     if json {
         output::print_json(&summaries)?;
     } else {
-        println!(
-            "{:<6} {:<10} {:<10} {:<38} Summary",
-            "Index", "Type", "Time", "UUID"
-        );
-        println!("{}", "-".repeat(100));
+        let mut table = output::Table::new(vec![
+            output::Column::left("Index"),
+            output::Column::left("Type"),
+            output::Column::left("Time"),
+            output::Column::left("UUID"),
+            output::Column::left("Summary"),
+        ]);
         for s in &summaries {
-            println!(
-                "{:<6} {:<10} {:<10} {:<38} {}",
-                s.index, s.block_type, s.timestamp, output::truncate(&s.uuid, 36), s.summary
-            );
+            table.add_row(vec![
+                s.index.to_string(),
+                s.block_type.clone(),
+                s.timestamp.clone(),
+                output::truncate(&s.uuid, 36),
+                s.summary.clone(),
+            ]);
         }
-        println!("\nTotal: {} blocks", summaries.len());
+        table.print_with_total(&format!("Total: {} blocks", summaries.len()));
     }
 
     Ok(())
@@ -199,11 +232,14 @@ fn run_count(session: &Session, group_by: &str, json: bool) -> Result<()> {
                     .collect();
                 output::print_json(&json_entries)?;
             } else {
-                println!("{:<20} {:>6}", "Tool Name", "Count");
-                println!("{}", "-".repeat(28));
+                let mut table = output::Table::new(vec![
+                    output::Column::left("Tool Name"),
+                    output::Column::right("Count"),
+                ]);
                 for (name, count) in &entries {
-                    println!("{:<20} {:>6}", name, count);
+                    table.add_row(vec![name.clone(), count.to_string()]);
                 }
+                table.print();
             }
         }
         _ => {
@@ -227,16 +263,18 @@ fn run_count(session: &Session, group_by: &str, json: bool) -> Result<()> {
                     .collect();
                 output::print_json(&json_entries)?;
             } else {
-                println!("{:<12} {:>6}", "Type", "Count");
-                println!("{}", "-".repeat(20));
+                let mut table = output::Table::new(vec![
+                    output::Column::left("Type"),
+                    output::Column::right("Count"),
+                ]);
                 let mut total = 0;
                 for t in &types {
                     let count = session.blocks_of_type(*t).len();
                     total += count;
-                    println!("{:<12} {:>6}", t, count);
+                    table.add_row(vec![t.to_string(), count.to_string()]);
                 }
-                println!("{}", "-".repeat(20));
-                println!("{:<12} {:>6}", "Total", total);
+                table.add_row(vec!["Total".to_string(), total.to_string()]);
+                table.print();
             }
         }
     }

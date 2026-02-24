@@ -53,11 +53,15 @@ fn run_list(session: &Session, json: bool) -> Result<()> {
             .collect();
         output::print_json(&json_turns)?;
     } else {
-        println!(
-            "{:>5} {:>20} {:>7} {:>6} {:>10} {:>10}  User Prompt",
-            "Turn", "Timestamp", "Blocks", "Tools", "Tokens", "Duration"
-        );
-        println!("{}", "-".repeat(100));
+        let mut table = output::Table::new(vec![
+            output::Column::right("Turn"),
+            output::Column::right("Timestamp"),
+            output::Column::right("Blocks"),
+            output::Column::right("Tools"),
+            output::Column::right("Tokens"),
+            output::Column::right("Duration"),
+            output::Column::left("User Prompt"),
+        ]);
 
         for turn in &turns {
             let user_prompt = if let Block::User(u) = session.block(turn.user_block) {
@@ -70,22 +74,22 @@ fn run_list(session: &Session, json: bool) -> Result<()> {
                 .map(|d| format!("{:.1}s", d as f64 / 1000.0))
                 .unwrap_or_default();
 
-            println!(
-                "{:>5} {:>20} {:>7} {:>6} {:>10} {:>10}  {}",
-                turn.index + 1,
+            table.add_row(vec![
+                (turn.index + 1).to_string(),
                 session
                     .block(turn.user_block)
                     .timestamp()
-                    .format("%Y-%m-%d %H:%M:%S"),
-                turn.all_blocks.len(),
-                turn.tool_blocks.len(),
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string(),
+                turn.all_blocks.len().to_string(),
+                turn.tool_blocks.len().to_string(),
                 output::format_number(turn.total_tokens.total()),
                 duration,
                 output::truncate(user_prompt, 40),
-            );
+            ]);
         }
 
-        println!("\nTotal: {} turns", turns.len());
+        table.print_with_total(&format!("Total: {} turns", turns.len()));
     }
 
     Ok(())
@@ -133,11 +137,12 @@ fn run_show(session: &Session, number: usize, json: bool) -> Result<()> {
         );
         println!();
         println!("Blocks ({}):", turn.all_blocks.len());
-        println!(
-            "  {:<6} {:<10} {:<10} Summary",
-            "Index", "Type", "Time"
-        );
-        println!("  {}", "-".repeat(70));
+        let mut table = output::Table::new(vec![
+            output::Column::left("Index"),
+            output::Column::left("Type"),
+            output::Column::left("Time"),
+            output::Column::left("Summary"),
+        ]);
 
         for &id in &turn.all_blocks {
             let block = session.block(id);
@@ -167,14 +172,14 @@ fn run_show(session: &Session, number: usize, json: bool) -> Result<()> {
                 Block::System(s) => format!("{:?}", s.subtype),
             };
 
-            println!(
-                "  {:<6} {:<10} {:<10} {}",
-                id,
-                block.block_type(),
-                block.timestamp().format("%H:%M:%S"),
+            table.add_row(vec![
+                id.to_string(),
+                block.block_type().to_string(),
+                block.timestamp().format("%H:%M:%S").to_string(),
                 summary,
-            );
+            ]);
         }
+        table.print();
     }
 
     Ok(())

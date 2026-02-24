@@ -62,12 +62,19 @@ fn run_list(session: &Session, sort: &str, json: bool) -> Result<()> {
             .collect();
         output::print_json(&json_entries)?;
     } else {
-        println!("{:<20} {:>6} {:>8}", "Tool Name", "Count", "Errors");
-        println!("{}", "-".repeat(36));
+        let mut table = output::Table::new(vec![
+            output::Column::left("Tool Name"),
+            output::Column::right("Count"),
+            output::Column::right("Errors"),
+        ]);
         for s in &entries {
-            println!("{:<20} {:>6} {:>8}", s.name, s.count, s.errors);
+            table.add_row(vec![
+                s.name.clone(),
+                s.count.to_string(),
+                s.errors.to_string(),
+            ]);
         }
-        println!("\nTotal: {} unique tools", entries.len());
+        table.print_with_total(&format!("Total: {} unique tools", entries.len()));
     }
 
     Ok(())
