@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "clauson",
+  "description": "Plugins for analyzing Claude Code sessions with clauson",
+  "owner": {
+    "name": "Anhad Jai Singh"
+  },
+  "plugins": [
+    {
+      "name": "clauson-hooks",
+      "description": "Logs tool lifecycle and permission events for analysis with clauson",
+      "version": "1.0.0",
+      "source": "./plugin",
+      "category": "monitoring",
+      "homepage": "https://github.com/anhadjaisingh/clauson",
+      "keywords": ["analytics", "permissions", "tool-events"]
+    }
+  ]
+}

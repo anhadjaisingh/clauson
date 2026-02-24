@@ -227,13 +227,23 @@ clauson file.jsonl turns show 1                      # detailed view of turn 1
 
 The `tool-events` command requires data collected by the `clauson-hooks` Claude Code plugin. The plugin logs tool lifecycle events (PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure) to a `.tool-events.jsonl` sidecar file next to each session transcript.
 
-### Install the plugin
+### Install from GitHub
 
-```
-/plugin add /path/to/clauson/plugin
+```bash
+# Add the clauson marketplace
+/plugin marketplace add anhadjaisingh/clauson
+
+# Install the hooks plugin
+/plugin install clauson-hooks@clauson
 ```
 
-Once installed, the plugin runs automatically during Claude Code sessions. Events are logged asynchronously (zero latency impact). The sidecar file appears alongside the session file:
+### Load from a local checkout
+
+```bash
+claude --plugin-dir /path/to/clauson/plugin
+```
+
+Once loaded, the plugin runs automatically. Events are logged asynchronously (zero latency impact). The sidecar file appears alongside the session file:
 
 ```
 ~/.claude/projects/<hash>/sessions/
