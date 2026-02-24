@@ -144,6 +144,51 @@ clauson file.jsonl stats distribution --token-type input,output   # interleaved 
 clauson file.jsonl stats distribution --tool Bash --token-type cache-read  # cache-read spread per command
 ```
 
+### `tool-events` — Permission and tool lifecycle analytics
+
+Analyzes tool event data collected by the `clauson-hooks` plugin (see [Plugin Setup](#plugin-setup) below). Answers questions like "which tools cause the most permission prompts?" and "what percentage of tool calls were blocked on permissions?"
+
+```bash
+# summary: "Which tools trigger permission prompts?"
+clauson file.jsonl tool-events                                # permission stats by tool (default)
+clauson file.jsonl tool-events summary --json                 # as JSON
+
+# list: "What happened in chronological order?"
+clauson file.jsonl tool-events list                           # all events
+clauson file.jsonl tool-events list --tool Bash               # only Bash events
+clauson file.jsonl tool-events list --event PermissionRequest # only permission prompts
+
+# timeline: "What was the lifecycle of each tool call?"
+clauson file.jsonl tool-events timeline                       # all tool call lifecycles
+clauson file.jsonl tool-events timeline --tool Bash           # only Bash lifecycles
+```
+
+Example output:
+
+```
+$ clauson session.jsonl tool-events
+
+Tool    Calls  Prompted  Prompt%  Denied  Deny%
+-------------------------------------------------
+Bash        5         3    60.0%       1  20.0%
+Read        3         0     0.0%       0   0.0%
+Write       2         2   100.0%       0   0.0%
+
+Total: 10 calls, 5 prompted (50.0%), 1 denied (10.0%)
+```
+
+```
+$ clauson session.jsonl tool-events timeline --tool Bash
+
+Tool Use ID           Tool   Detail          Status              Wait
+---------------------------------------------------------------------
+toolu_01              Bash   ls -la          auto-approved
+toolu_03              Bash   cargo test      prompted->approved  3.9s
+toolu_06              Bash   rm -rf /tmp/... prompted->denied    0.9s
+toolu_07              Bash   git status      prompted->approved  1.0s
+toolu_08              Bash   echo hello      auto-approved
+```
+
 ### `blocks` — Query and filter blocks
 
 ```bash
@@ -177,6 +222,30 @@ clauson file.jsonl turns show 1                      # detailed view of turn 1
 |------|--------|
 | `--json` | Output as JSON (works with all commands) |
 | `--raw` | Show raw JSONL lines (works with `blocks show`) |
+
+## Plugin Setup
+
+The `tool-events` command requires data collected by the `clauson-hooks` Claude Code plugin. The plugin logs tool lifecycle events (PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure) to a `.tool-events.jsonl` sidecar file next to each session transcript.
+
+### Install the plugin
+
+```
+/plugin add /path/to/clauson/plugin
+```
+
+Once installed, the plugin runs automatically during Claude Code sessions. Events are logged asynchronously (zero latency impact). The sidecar file appears alongside the session file:
+
+```
+~/.claude/projects/<hash>/sessions/
+  abc123.jsonl                    # session transcript (already exists)
+  abc123.tool-events.jsonl        # tool events sidecar (created by plugin)
+```
+
+Then analyze with:
+
+```bash
+clauson ~/.claude/projects/<hash>/sessions/abc123.jsonl tool-events
+```
 
 ## Building from source
 
