@@ -1,0 +1,4 @@
+{
+  "name": "clauson-hooks",
+  "description": "Logs tool lifecycle and permission events for analysis with clauson"
+}
