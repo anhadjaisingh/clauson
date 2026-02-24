@@ -20,6 +20,9 @@ cli::Command::Turns { action } => {
         cli::Command::Stats { action } => {
             cli::stats::run(&session, action.as_ref(), cli.json)?;
         }
+        cli::Command::ToolEvents { action } => {
+            cli::tool_events::run(&cli.file, action.as_ref(), cli.json)?;
+        }
     }
     Ok(())
 }

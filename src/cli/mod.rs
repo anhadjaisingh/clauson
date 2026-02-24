@@ -4,6 +4,7 @@ use std::path::PathBuf;
 pub mod blocks;
 pub mod output;
 pub mod stats;
+pub mod tool_events;
 pub mod tools;
 pub mod turns;
 
@@ -46,5 +47,11 @@ pub enum Command {
     Stats {
         #[command(subcommand)]
         action: Option<stats::StatsAction>,
+    },
+    /// Analyze tool lifecycle and permission events from sidecar log
+    #[command(name = "tool-events")]
+    ToolEvents {
+        #[command(subcommand)]
+        action: Option<tool_events::ToolEventsAction>,
     },
 }
