@@ -1,0 +1,2 @@
+{"type":"user","uuid":"u1","parentUuid":null,"timestamp":"2026-02-24T12:00:00.000Z","sessionId":"real-sess","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"Test session for real-format tool events"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-02-24T12:00:01.000Z","sessionId":"real-sess","isSidechain":false,"requestId":"req_01","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"OK."}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}}

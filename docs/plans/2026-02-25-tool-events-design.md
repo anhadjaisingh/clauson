@@ -54,28 +54,65 @@ Reads JSON from stdin. Writes one JSONL line to `<transcript>.tool-events.jsonl`
 Fields written per event:
 - `event` (string): hook event name
 - `tool_name` (string): tool being called
-- `tool_use_id` (string): correlates events for one tool call
+- `tool_use_id` (string | null): correlates events for one tool call. **Note: Claude Code sends `null` for `PermissionRequest` events** (see Lifecycle Correlation below).
 - `tool_input` (object): full tool input
 - `session_id` (string): session identifier
 - `permission_mode` (string): current permission mode
 - `timestamp` (string): ISO 8601
-- `permission_suggestions` (array, PermissionRequest only): auto-allow suggestions shown to user
+- `permission_suggestions` (array of objects | null, PermissionRequest only): auto-allow suggestions shown to user. Each suggestion is an object with `type`, `rules`, `behavior`, `destination` fields — **not** a plain string array.
+
+#### Real `PermissionRequest` event example (from production data)
+
+```json
+{
+  "event": "PermissionRequest",
+  "tool_name": "Bash",
+  "tool_use_id": null,
+  "tool_input": {
+    "command": "ls -la /some/path",
+    "description": "List files"
+  },
+  "session_id": "d3f6edaa-...",
+  "permission_mode": "default",
+  "timestamp": "2026-02-26T07:55:21.000Z",
+  "permission_suggestions": [
+    {
+      "type": "addRules",
+      "rules": [{ "toolName": "Bash", "ruleContent": "ls*" }],
+      "behavior": "allow",
+      "destination": "session"
+    }
+  ]
+}
+```
 
 ### Sidecar File Location
 
 Derived from `transcript_path` in the hook input:
-- Session: `~/.claude/projects/<hash>/sessions/<id>.jsonl`
-- Sidecar: `~/.claude/projects/<hash>/sessions/<id>.tool-events.jsonl`
+- Session: `~/.claude/projects/<hash>/<id>.jsonl`
+- Sidecar: `~/.claude/projects/<hash>/<id>.tool-events.jsonl`
 
 ### Tool Call Lifecycle Correlation
 
-Events for one tool call share a `tool_use_id`:
+**Original assumption (incorrect):**
 
-```
-PreToolUse(toolu_01)  ->  PermissionRequest(toolu_01)?  ->  PostToolUse(toolu_01) | PostToolUseFailure(toolu_01)
-```
+> Events for one tool call share a `tool_use_id`:
+> `PreToolUse(toolu_01) -> PermissionRequest(toolu_01)? -> PostToolUse(toolu_01)`
 
-A tool call was "prompted" if it has a PermissionRequest event. A tool call was "denied" if it has PermissionRequest but no PostToolUse (only PostToolUseFailure or nothing).
+**Actual behavior:** Claude Code sends `tool_use_id: null` for `PermissionRequest` events. Only `PreToolUse`, `PostToolUse`, and `PostToolUseFailure` have a `tool_use_id`.
+
+**Correlation strategy:** Since `PermissionRequest` lacks a `tool_use_id`, we match it to a lifecycle by:
+1. Finding the `PreToolUse` event with the **same `tool_name` and `tool_input`** that occurs just before the `PermissionRequest` timestamp.
+2. If multiple candidates, use the closest preceding `PreToolUse` by timestamp.
+3. A `PermissionRequest` that cannot be matched to any `PreToolUse` is logged as unmatched (should be rare).
+
+A tool call was "prompted" if it has a matched PermissionRequest event. A tool call was "denied" if it has a PermissionRequest but no PostToolUse (only PostToolUseFailure or nothing).
+
+### Model Types
+
+`ToolEvent`:
+- `tool_use_id` must be `Option<String>` (nullable)
+- `permission_suggestions` must be `Option<Vec<serde_json::Value>>` (array of objects, not strings)
 
 ## Component 2: `clauson tool-events` Subcommand
 

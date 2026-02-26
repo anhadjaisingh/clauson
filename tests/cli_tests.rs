@@ -706,3 +706,244 @@ fn tool_events_timeline_json_has_wait() {
         .unwrap();
     assert!(prompted["wait_secs"].as_f64().unwrap() > 0.0);
 }
+
+// === tool-events real-format ===
+//
+// Test fixture: testdata/test-session-real-format.jsonl + .tool-events.jsonl
+// Uses real production format: tool_use_id is null on PermissionRequest,
+// permission_suggestions contains objects (not strings).
+//
+// Fixture contains: 8 calls (4 Bash, 2 Read, 1 Write, 1 WebFetch)
+//   - 2 auto-approved (Bash ls, Read /tmp/foo.rs)
+//   - 5 prompted->approved (Bash cargo test, Read /etc/passwd, Write, Bash npm install, Bash git push)
+//   - 1 prompted->denied (WebFetch)
+//   Total: 6 prompted, 1 denied
+
+const REAL_FORMAT_SESSION: &str = "testdata/test-session-real-format.jsonl";
+
+#[test]
+fn tool_events_real_format_parses() {
+    // Fixture should parse without errors and produce correct total count
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([REAL_FORMAT_SESSION, "tool-events", "list", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    // 8 PreToolUse + 6 PermissionRequest + 7 PostToolUse + 1 PostToolUseFailure = 22
+    assert_eq!(parsed.len(), 22);
+    // No warnings on stderr (all lines parse successfully)
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("warning: skipped"),
+        "unexpected parse warnings: {stderr}"
+    );
+}
+
+#[test]
+fn tool_events_real_format_summary_counts() {
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([REAL_FORMAT_SESSION, "tool-events", "summary", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let total = parsed.last().unwrap();
+    assert_eq!(total["calls"], 8);
+    assert_eq!(total["prompted"], 6);
+    assert_eq!(total["denied"], 1);
+}
+
+#[test]
+fn tool_events_real_format_timeline_statuses() {
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([REAL_FORMAT_SESSION, "tool-events", "timeline", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed.len(), 8);
+    let auto: Vec<_> = parsed
+        .iter()
+        .filter(|e| e["status"] == "auto-approved")
+        .collect();
+    let approved: Vec<_> = parsed
+        .iter()
+        .filter(|e| e["status"] == "prompted->approved")
+        .collect();
+    let denied: Vec<_> = parsed
+        .iter()
+        .filter(|e| e["status"] == "prompted->denied")
+        .collect();
+    assert_eq!(auto.len(), 2);
+    assert_eq!(approved.len(), 5);
+    assert_eq!(denied.len(), 1);
+}
+
+#[test]
+fn tool_events_real_format_timeline_wait_times() {
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([REAL_FORMAT_SESSION, "tool-events", "timeline", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    // All prompted entries should have wait_secs > 0
+    for entry in &parsed {
+        if entry["status"] == "prompted->approved" || entry["status"] == "prompted->denied" {
+            assert!(
+                entry["wait_secs"].as_f64().unwrap() > 0.0,
+                "prompted entry should have wait_secs > 0: {entry}"
+            );
+        }
+    }
+}
+
+#[test]
+fn tool_events_real_format_list_permission_request() {
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([
+            REAL_FORMAT_SESSION,
+            "tool-events",
+            "list",
+            "--event",
+            "PermissionRequest",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed.len(), 6);
+    for entry in &parsed {
+        assert_eq!(entry["event"], "PermissionRequest");
+    }
+}
+
+// --- summary wait time columns ---
+
+#[test]
+fn tool_events_summary_has_wait() {
+    // Table output should contain Wait and Wait% headers
+    Command::cargo_bin("clauson")
+        .unwrap()
+        .args([TOOL_EVENTS_SESSION, "tool-events", "summary"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Wait"))
+        .stdout(predicate::str::contains("Wait%"));
+}
+
+#[test]
+fn tool_events_summary_json_has_wait() {
+    // JSON entries should have wait_secs field
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([TOOL_EVENTS_SESSION, "tool-events", "summary", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    for entry in &parsed {
+        assert!(
+            entry.get("wait_secs").is_some(),
+            "entry missing wait_secs: {entry}"
+        );
+    }
+    // Bash has prompted calls so should have wait > 0
+    let bash = parsed.iter().find(|e| e["tool_name"] == "Bash").unwrap();
+    assert!(bash["wait_secs"].as_f64().unwrap() > 0.0);
+    // Read has no prompted calls so wait should be 0
+    let read = parsed.iter().find(|e| e["tool_name"] == "Read").unwrap();
+    assert_eq!(read["wait_secs"].as_f64().unwrap(), 0.0);
+}
+
+// --- summary --tool drill-down ---
+
+#[test]
+fn tool_events_summary_drilldown_runs() {
+    // --tool Bash should show Detail column instead of Tool column
+    Command::cargo_bin("clauson")
+        .unwrap()
+        .args([
+            TOOL_EVENTS_SESSION,
+            "tool-events",
+            "summary",
+            "--tool",
+            "Bash",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Detail"))
+        .stdout(predicate::str::contains("Calls"))
+        .stdout(predicate::str::contains("Prompted"));
+}
+
+#[test]
+fn tool_events_summary_drilldown_json() {
+    // --tool Bash --json should have detail field with correct aggregate counts
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([
+            TOOL_EVENTS_SESSION,
+            "tool-events",
+            "summary",
+            "--tool",
+            "Bash",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    // Each entry should have detail field
+    for entry in &parsed {
+        assert!(
+            entry.get("detail").is_some(),
+            "entry missing detail: {entry}"
+        );
+    }
+    // Total row should match fixture: 5 Bash calls, 3 prompted, 1 denied
+    let total = parsed.last().unwrap();
+    assert_eq!(total["detail"], "Total");
+    assert_eq!(total["calls"], 5);
+    assert_eq!(total["prompted"], 3);
+    assert_eq!(total["denied"], 1);
+}
+
+#[test]
+fn tool_events_real_format_drilldown() {
+    // --tool Bash --json on real-format fixture should show prompted bash details
+    let output = Command::cargo_bin("clauson")
+        .unwrap()
+        .args([
+            REAL_FORMAT_SESSION,
+            "tool-events",
+            "summary",
+            "--tool",
+            "Bash",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).unwrap();
+    // Real-format has 4 Bash calls, 3 prompted, 0 denied
+    let total = parsed.last().unwrap();
+    assert_eq!(total["detail"], "Total");
+    assert_eq!(total["calls"], 4);
+    assert_eq!(total["prompted"], 3);
+    assert_eq!(total["denied"], 0);
+    // Should include specific bash commands as details
+    let details: Vec<_> = parsed
+        .iter()
+        .filter(|e| e["detail"] != "Total")
+        .map(|e| e["detail"].as_str().unwrap().to_string())
+        .collect();
+    assert!(details.contains(&"cargo test".to_string()));
+}

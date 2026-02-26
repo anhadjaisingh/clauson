@@ -8,15 +8,36 @@ pub fn parse_tool_events(path: &Path) -> anyhow::Result<Vec<ToolEvent>> {
     let file = std::fs::File::open(path)?;
     let reader = std::io::BufReader::new(file);
     let mut events = Vec::new();
+    let mut skipped = 0usize;
+    let mut first_skipped_line: Option<String> = None;
 
     for line_result in reader.lines() {
         let line = line_result?;
         if line.trim().is_empty() {
             continue;
         }
-        if let Ok(event) = serde_json::from_str::<ToolEvent>(&line) {
-            events.push(event);
+        match serde_json::from_str::<ToolEvent>(&line) {
+            Ok(event) => events.push(event),
+            Err(_) => {
+                if first_skipped_line.is_none() {
+                    first_skipped_line = Some(line);
+                }
+                skipped += 1;
+            }
         }
+    }
+
+    if skipped > 0 {
+        let preview = first_skipped_line.unwrap_or_default();
+        let truncated = if preview.len() > 120 {
+            format!("{}...", &preview[..120])
+        } else {
+            preview
+        };
+        eprintln!(
+            "warning: skipped {skipped} malformed tool-event line(s) in {}; first: {truncated}",
+            path.display()
+        );
     }
 
     Ok(events)
