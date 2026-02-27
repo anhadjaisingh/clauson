@@ -11,7 +11,11 @@ use super::output;
 #[derive(Subcommand)]
 pub enum ToolEventsAction {
     /// Aggregated permission stats per tool (default)
-    Summary,
+    Summary {
+        /// Drill down into a specific tool's details
+        #[arg(long)]
+        tool: Option<String>,
+    },
     /// Chronological event stream
     List {
         /// Filter by tool name
@@ -48,7 +52,8 @@ pub fn run(session_path: &Path, action: Option<&ToolEventsAction>, json: bool) -
     }
 
     match action {
-        None | Some(ToolEventsAction::Summary) => run_summary(&events, json),
+        None => run_summary(&events, None, json),
+        Some(ToolEventsAction::Summary { tool }) => run_summary(&events, tool.as_deref(), json),
         Some(ToolEventsAction::List { tool, event }) => {
             run_list(&events, tool.as_deref(), event.as_deref(), json)
         }
@@ -59,13 +64,22 @@ pub fn run(session_path: &Path, action: Option<&ToolEventsAction>, json: bool) -
     }
 }
 
-fn run_summary(events: &[clauson::model::tool_event::ToolEvent], json: bool) -> Result<()> {
+fn run_summary(
+    events: &[clauson::model::tool_event::ToolEvent],
+    tool_filter: Option<&str>,
+    json: bool,
+) -> Result<()> {
     let lifecycles = build_lifecycles(events);
+
+    if let Some(tool_name) = tool_filter {
+        return run_summary_tool_detail(&lifecycles, tool_name, json);
+    }
 
     struct ToolStats {
         calls: usize,
         prompted: usize,
         denied: usize,
+        wait_secs: f64,
     }
 
     let mut stats: HashMap<String, ToolStats> = HashMap::new();
@@ -74,6 +88,7 @@ fn run_summary(events: &[clauson::model::tool_event::ToolEvent], json: bool) -> 
             calls: 0,
             prompted: 0,
             denied: 0,
+            wait_secs: 0.0,
         });
         entry.calls += 1;
         if lc.was_prompted() {
@@ -81,6 +96,9 @@ fn run_summary(events: &[clauson::model::tool_event::ToolEvent], json: bool) -> 
         }
         if lc.was_denied() {
             entry.denied += 1;
+        }
+        if let Some(w) = lc.permission_wait_secs() {
+            entry.wait_secs += w;
         }
     }
 
@@ -90,6 +108,7 @@ fn run_summary(events: &[clauson::model::tool_event::ToolEvent], json: bool) -> 
     let total_calls: usize = entries.iter().map(|(_, s)| s.calls).sum();
     let total_prompted: usize = entries.iter().map(|(_, s)| s.prompted).sum();
     let total_denied: usize = entries.iter().map(|(_, s)| s.denied).sum();
+    let total_wait: f64 = entries.iter().map(|(_, s)| s.wait_secs).sum();
 
     if json {
         let mut json_entries: Vec<_> = entries
@@ -102,6 +121,8 @@ fn run_summary(events: &[clauson::model::tool_event::ToolEvent], json: bool) -> 
                     "prompt_percent": format!("{:.1}", pct(s.prompted, s.calls)),
                     "denied": s.denied,
                     "deny_percent": format!("{:.1}", pct(s.denied, s.calls)),
+                    "wait_secs": round2(s.wait_secs),
+                    "wait_percent": format!("{:.1}", pct_f64(s.wait_secs, total_wait)),
                 })
             })
             .collect();
@@ -112,6 +133,8 @@ fn run_summary(events: &[clauson::model::tool_event::ToolEvent], json: bool) -> 
             "prompt_percent": format!("{:.1}", pct(total_prompted, total_calls)),
             "denied": total_denied,
             "deny_percent": format!("{:.1}", pct(total_denied, total_calls)),
+            "wait_secs": round2(total_wait),
+            "wait_percent": "100.0",
         }));
         output::print_json(&json_entries)?;
     } else {
@@ -122,6 +145,8 @@ fn run_summary(events: &[clauson::model::tool_event::ToolEvent], json: bool) -> 
             output::Column::right("Prompt%"),
             output::Column::right("Denied"),
             output::Column::right("Deny%"),
+            output::Column::right("Wait"),
+            output::Column::right("Wait%"),
         ]);
         for (name, s) in &entries {
             table.add_row(vec![
@@ -131,15 +156,109 @@ fn run_summary(events: &[clauson::model::tool_event::ToolEvent], json: bool) -> 
                 format!("{:.1}%", pct(s.prompted, s.calls)),
                 s.denied.to_string(),
                 format!("{:.1}%", pct(s.denied, s.calls)),
+                format_wait(s.wait_secs),
+                format!("{:.1}%", pct_f64(s.wait_secs, total_wait)),
             ]);
         }
         table.print_with_total(&format!(
-            "Total: {} calls, {} prompted ({:.1}%), {} denied ({:.1}%)",
+            "Total: {} calls, {} prompted ({:.1}%), {} denied ({:.1}%), {} wait",
             total_calls,
             total_prompted,
             pct(total_prompted, total_calls),
             total_denied,
             pct(total_denied, total_calls),
+            format_wait(total_wait),
+        ));
+    }
+
+    Ok(())
+}
+
+fn run_summary_tool_detail(
+    lifecycles: &[ToolCallLifecycle],
+    tool_name: &str,
+    json: bool,
+) -> Result<()> {
+    struct DetailStats {
+        calls: usize,
+        prompted: usize,
+        denied: usize,
+        wait_secs: f64,
+    }
+
+    let mut buckets: HashMap<String, DetailStats> = HashMap::new();
+    for lc in lifecycles {
+        if lc.tool_name != tool_name {
+            continue;
+        }
+        let detail = extract_tool_detail(&lc.tool_name, &lc.tool_input);
+        let entry = buckets.entry(detail).or_insert(DetailStats {
+            calls: 0,
+            prompted: 0,
+            denied: 0,
+            wait_secs: 0.0,
+        });
+        entry.calls += 1;
+        if lc.was_prompted() {
+            entry.prompted += 1;
+        }
+        if lc.was_denied() {
+            entry.denied += 1;
+        }
+        if let Some(w) = lc.permission_wait_secs() {
+            entry.wait_secs += w;
+        }
+    }
+
+    let mut entries: Vec<_> = buckets.into_iter().collect();
+    entries.sort_by(|a, b| b.1.prompted.cmp(&a.1.prompted));
+
+    let total_calls: usize = entries.iter().map(|(_, s)| s.calls).sum();
+    let total_prompted: usize = entries.iter().map(|(_, s)| s.prompted).sum();
+    let total_denied: usize = entries.iter().map(|(_, s)| s.denied).sum();
+    let total_wait: f64 = entries.iter().map(|(_, s)| s.wait_secs).sum();
+
+    if json {
+        let mut json_entries: Vec<_> = entries
+            .iter()
+            .map(|(detail, s)| {
+                serde_json::json!({
+                    "detail": detail,
+                    "calls": s.calls,
+                    "prompted": s.prompted,
+                    "denied": s.denied,
+                    "wait_secs": round2(s.wait_secs),
+                })
+            })
+            .collect();
+        json_entries.push(serde_json::json!({
+            "detail": "Total",
+            "calls": total_calls,
+            "prompted": total_prompted,
+            "denied": total_denied,
+            "wait_secs": round2(total_wait),
+        }));
+        output::print_json(&json_entries)?;
+    } else {
+        let mut table = output::Table::new(vec![
+            output::Column::left("Detail"),
+            output::Column::right("Calls"),
+            output::Column::right("Prompted"),
+            output::Column::right("Denied"),
+            output::Column::right("Wait"),
+        ]);
+        for (detail, s) in &entries {
+            table.add_row(vec![
+                detail.clone(),
+                s.calls.to_string(),
+                s.prompted.to_string(),
+                s.denied.to_string(),
+                format_wait(s.wait_secs),
+            ]);
+        }
+        table.print_with_total(&format!(
+            "Total: {} calls, {} prompted, {} denied, {} wait",
+            total_calls, total_prompted, total_denied, format_wait(total_wait),
         ));
     }
 
@@ -177,7 +296,7 @@ fn run_list(
                     "timestamp": e.timestamp.format("%H:%M:%S%.3f").to_string(),
                     "event": e.event.to_string(),
                     "tool_name": e.tool_name,
-                    "tool_use_id": e.tool_use_id,
+                    "tool_use_id": e.tool_use_id.as_deref().unwrap_or(""),
                 })
             })
             .collect();
@@ -194,7 +313,7 @@ fn run_list(
                 e.timestamp.format("%H:%M:%S").to_string(),
                 e.event.to_string(),
                 e.tool_name.clone(),
-                output::truncate(&e.tool_use_id, 20),
+                output::truncate(e.tool_use_id.as_deref().unwrap_or(""), 20),
             ]);
         }
         table.print();
@@ -225,7 +344,7 @@ fn run_timeline(
             .map(|lc| {
                 let detail = extract_tool_detail(&lc.tool_name, &lc.tool_input);
                 serde_json::json!({
-                    "tool_use_id": lc.tool_use_id,
+                    "tool_use_id": lc.tool_use_id.as_deref().unwrap_or(""),
                     "tool_name": lc.tool_name,
                     "detail": detail,
                     "status": lc.status_label(),
@@ -249,7 +368,7 @@ fn run_timeline(
                 .map(|s| format!("{s:.1}s"))
                 .unwrap_or_default();
             table.add_row(vec![
-                output::truncate(&lc.tool_use_id, 20),
+                output::truncate(lc.tool_use_id.as_deref().unwrap_or(""), 20),
                 lc.tool_name.clone(),
                 detail,
                 lc.status_label().to_string(),
@@ -289,5 +408,29 @@ fn pct(part: usize, total: usize) -> f64 {
         (part as f64 / total as f64) * 100.0
     } else {
         0.0
+    }
+}
+
+fn pct_f64(part: f64, total: f64) -> f64 {
+    if total > 0.0 {
+        (part / total) * 100.0
+    } else {
+        0.0
+    }
+}
+
+fn round2(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+fn format_wait(secs: f64) -> String {
+    if secs < 0.05 {
+        "0s".to_string()
+    } else if secs < 60.0 {
+        format!("{secs:.1}s")
+    } else {
+        let mins = (secs / 60.0).floor() as u64;
+        let remainder = secs - (mins as f64 * 60.0);
+        format!("{mins}m {remainder:.0}s")
     }
 }
